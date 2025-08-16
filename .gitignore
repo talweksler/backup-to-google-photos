@@ -1,0 +1,35 @@
+# Sensitive files - NEVER commit these!
+credentials.json
+token.json
+client_secret*.json
+
+# Application data
+.backup_states/
+logs/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+*.so
+*.egg-info/
+
+# Virtual Environment
+.env
+venv/
+env/
+ENV/
+
+# IDE and OS
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Temporary files
+*.tmp
+*.bak
+*.backup

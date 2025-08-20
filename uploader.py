@@ -4,6 +4,7 @@ import os
 import logging
 from typing import Optional, Tuple, List
 import time
+import urllib.parse
 from googleapiclient.errors import HttpError
 from googleapiclient.http import MediaFileUpload
 import requests
@@ -156,10 +157,14 @@ class MediaUploader:
                         return None
                 
                 # Prepare headers
+                # Encode filename properly for HTTP headers (use UTF-8 and URL encode)
+                filename = os.path.basename(file_path)
+                encoded_filename = urllib.parse.quote(filename.encode('utf-8'))
+                
                 headers = {
                     'Authorization': f'Bearer {self.service._http.credentials.token}',
                     'Content-type': 'application/octet-stream',
-                    'X-Goog-Upload-File-Name': os.path.basename(file_path),
+                    'X-Goog-Upload-File-Name': encoded_filename,
                     'X-Goog-Upload-Protocol': 'raw',
                 }
                 
@@ -218,11 +223,12 @@ class MediaUploader:
                 logger.debug(f"Creating media item for {file_path} (attempt {attempt + 1})")
                 
                 # Prepare the request body
+                filename = os.path.basename(file_path)
                 new_media_item = {
-                    'description': os.path.basename(file_path),
+                    'description': filename,
                     'simpleMediaItem': {
                         'uploadToken': upload_token,
-                        'fileName': os.path.basename(file_path)
+                        'fileName': filename
                     }
                 }
                 

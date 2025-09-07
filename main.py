@@ -22,20 +22,56 @@ from state_manager import BackupState, list_all_states
 from quota_tracker import QuotaTracker, estimate_total_requests_for_backup
 from album_manager import AlbumManager, AlbumExistsAction
 from uploader import MediaUploader, get_directory_media_count
+from safe_logging import safe_log
+
+# System directories and files to skip
+SKIP_DIRECTORIES = {
+    '.aux',     # Windows auxiliary files
+    '.tmp',     # Temporary files
+    '.temp',    # Temporary files
+    '$recycle.bin',  # Windows recycle bin
+    'system volume information',  # Windows system folder
+    '.trashes', # macOS trash
+    '.DS_Store', # macOS system files
+    'thumbs.db', # Windows thumbnail cache
+    '@eaDir',   # Synology NAS system folder
+    '.@__thumb', # Synology thumbnails
+    '.picasa',  # Google Picasa cache
+    '.picasaoriginals' # Picasa backups
+}
 
 # Global variables for signal handling
 interrupted = False
 current_state = None
 
+def should_skip_directory(directory_path: str) -> bool:
+    """Check if a directory should be skipped based on system directory patterns"""
+    dir_name = os.path.basename(directory_path).lower()
+    
+    # Check against skip list
+    if dir_name in SKIP_DIRECTORIES:
+        return True
+    
+    # Check for hidden directories (starting with .)
+    if dir_name.startswith('.') and len(dir_name) > 1:
+        return True
+    
+    # Check for Windows system attributes or patterns
+    if dir_name.startswith('$') or dir_name.startswith('@'):
+        return True
+        
+    return False
+
+
 def signal_handler(signum, frame):
     """Handle Ctrl+C gracefully"""
     global interrupted, current_state
-    print("\n🛑 Interrupt signal received. Saving progress and stopping...")
+    print("\n[STOP] Interrupt signal received. Saving progress and stopping...")
     interrupted = True
     if current_state:
         current_state.set_stop_reason("User interruption (Ctrl+C)")
         current_state.save_state()
-    print("💾 Progress saved. Exiting...")
+    print("[SAVE] Progress saved. Exiting...")
     sys.exit(0)
 
 def setup_logging(verbose: bool = False, log_file: str = None):
@@ -68,8 +104,9 @@ def setup_logging(verbose: bool = False, log_file: str = None):
     file_handler.setFormatter(detailed_formatter)
     logger.addHandler(file_handler)
     
-    # Console handler
+    # Console handler (encoding handled at startup for Windows)
     console_handler = logging.StreamHandler()
+    
     console_handler.setLevel(log_level)
     if verbose:
         console_handler.setFormatter(detailed_formatter)
@@ -82,9 +119,18 @@ def setup_logging(verbose: bool = False, log_file: str = None):
 def get_all_subdirectories(base_path: str) -> List[str]:
     """Get all subdirectories recursively, sorted by depth (deepest first)"""
     subdirs = []
+    skipped_count = 0
     
     try:
         for root, dirs, files in os.walk(base_path):
+            # Skip system directories
+            if should_skip_directory(root):
+                skipped_count += 1
+                continue
+            
+            # Filter out system directories from the dirs list to prevent os.walk from entering them
+            dirs[:] = [d for d in dirs if not should_skip_directory(os.path.join(root, d))]
+            
             # Only include directories that have media files
             total_files, supported_files = get_directory_media_count(root)
             if supported_files > 0:
@@ -101,6 +147,9 @@ def get_all_subdirectories(base_path: str) -> List[str]:
     # Sort by depth (deepest first) to process leaf directories first
     subdirs.sort(key=lambda x: x.count(os.sep), reverse=True)
     
+    if skipped_count > 0:
+        safe_log('info', f"Skipped {skipped_count} system/hidden directories")
+    
     return subdirs
 
 def estimate_backup_scope(base_directory: str) -> Tuple[int, int, int]:
@@ -112,6 +161,13 @@ def estimate_backup_scope(base_directory: str) -> Tuple[int, int, int]:
     directories_with_media = 0
     
     for root, dirs, files in os.walk(base_directory):
+        # Skip system directories
+        if should_skip_directory(root):
+            continue
+            
+        # Filter out system directories from the dirs list to prevent os.walk from entering them
+        dirs[:] = [d for d in dirs if not should_skip_directory(os.path.join(root, d))]
+        
         total_dir_files, supported_files = get_directory_media_count(root)
         if supported_files > 0:
             total_files += supported_files
@@ -192,8 +248,8 @@ def process_directory(directory: str, album_manager: AlbumManager, uploader: Med
         else:
             target_album_id, created_new = None, False
     
-    logging.info(f"\n📁 Processing directory: {directory}")
-    logging.info(f"   Album name: {album_name}")
+    safe_log('info', f"\n📁 Processing directory: {directory}")
+    safe_log('info', f"   Album name: {album_name}")
     
     # Count files in directory
     total_files, supported_files = get_directory_media_count(directory)
@@ -205,7 +261,7 @@ def process_directory(directory: str, album_manager: AlbumManager, uploader: Med
     logging.info(f"   Found {supported_files} supported files (of {total_files} total)")
     
     if dry_run:
-        logging.info(f"   [DRY RUN] Would create album '{album_name}' and upload {supported_files} files")
+        safe_log('info', f"   [DRY RUN] Would create album '{album_name}' and upload {supported_files} files")
         return True, 0, supported_files, 0, album_name
     
     if target_album_id is None:
@@ -218,16 +274,16 @@ def process_directory(directory: str, album_manager: AlbumManager, uploader: Med
     
     if custom_album_name and album_id:
         # For single album uploads, don't log creation since it was done earlier
-        logging.info(f"   📁 Adding to album: {album_name} ({target_album_id})")
+        safe_log('info', f"   📁 Adding to album: {album_name} ({target_album_id})")
     elif created_new:
-        logging.info(f"   ✨ Created new album: {album_name} ({target_album_id})")
+        safe_log('info', f"   ✨ Created new album: {album_name} ({target_album_id})")
     else:
-        logging.info(f"   📁 Using existing album: {album_name} ({target_album_id})")
+        safe_log('info', f"   📁 Using existing album: {album_name} ({target_album_id})")
     
     # Upload files in directory
     uploaded, skipped, failed = uploader.upload_directory_files(directory, target_album_id)
     
-    logging.info(f"   📊 Results: {uploaded} uploaded, {skipped} skipped, {failed} failed")
+    safe_log('info', f"   📊 Results: {uploaded} uploaded, {skipped} skipped, {failed} failed")
     
     return True, uploaded, skipped, failed, album_name
 
@@ -250,7 +306,7 @@ def run_backup(args):
         logging.error(f"Path is not a directory: {base_directory}")
         return 1
     
-    logging.info(f"🚀 Starting Google Photos backup")
+    safe_log('info', f"🚀 Starting Google Photos backup")
     logging.info(f"   Source directory: {base_directory}")
     logging.info(f"   Dry run: {'Yes' if args.dry_run else 'No'}")
     
@@ -260,7 +316,7 @@ def run_backup(args):
     
     # Check if we should reset state
     if args.reset_state:
-        logging.info("🔄 Resetting state (fresh start)")
+        safe_log('info', "🔄 Resetting state (fresh start)")
         state.delete_state_file()
         state = BackupState(base_directory)
         current_state = state
@@ -268,14 +324,14 @@ def run_backup(args):
     # Show existing state info
     last_dir = state.get_last_processed_directory()
     if last_dir:
-        logging.info(f"📝 Resuming from previous session")
+        safe_log('info', f"📝 Resuming from previous session")
         logging.info(f"   Last processed: {last_dir}")
         logging.info(f"   Files uploaded so far: {len(state.get_uploaded_files())}")
     
     state.start_new_session()
     
     # Estimate backup scope
-    logging.info("📊 Analyzing backup scope...")
+    safe_log('info', "📊 Analyzing backup scope...")
     total_files, total_dirs, estimated_requests = estimate_backup_scope(base_directory)
     
     # Get already uploaded count
@@ -291,26 +347,26 @@ def run_backup(args):
         logging.info(f"   Estimated API requests: {estimated_requests:,}")
         
         if estimated_requests > 9000:
-            logging.warning(f"⚠️  Large backup detected! This may require multiple days to complete.")
+            safe_log('warning', f"⚠️  Large backup detected! This may require multiple days to complete.")
     
     # Authenticate
     if not args.dry_run:
-        logging.info("🔐 Authenticating with Google Photos...")
+        safe_log('info', "🔐 Authenticating with Google Photos...")
         auth = GooglePhotosAuth()
         if not auth.authenticate():
-            logging.error("❌ Authentication failed")
+            safe_log('error', "❌ Authentication failed")
             return 1
         
         service = auth.get_service()
         if not service:
-            logging.error("❌ Failed to initialize Google Photos service")
+            safe_log('error', "❌ Failed to initialize Google Photos service")
             return 1
         
         if not auth.test_connection():
-            logging.error("❌ API connection test failed")
+            safe_log('error', "❌ API connection test failed")
             return 1
         
-        logging.info("✅ Authentication successful")
+        safe_log('info', "✅ Authentication successful")
     else:
         service = None
     
@@ -325,9 +381,9 @@ def run_backup(args):
         uploader.set_total_files_count(total_files)
         
         # Load existing albums
-        logging.info("📚 Loading existing albums...")
+        safe_log('info', "📚 Loading existing albums...")
         if not album_manager.load_existing_albums():
-            logging.error("❌ Failed to load existing albums")
+            safe_log('error', "❌ Failed to load existing albums")
             return 1
     else:
         album_manager = None
@@ -336,41 +392,41 @@ def run_backup(args):
     # Determine exists action
     if args.skip_existing:
         exists_action = AlbumExistsAction.SKIP
-        logging.info("📋 Policy: Skip existing albums")
+        safe_log('info', "📋 Policy: Skip existing albums")
     elif args.merge_existing:
         exists_action = AlbumExistsAction.MERGE
-        logging.info("📋 Policy: Merge with existing albums")
+        safe_log('info', "📋 Policy: Merge with existing albums")
     else:
         exists_action = AlbumExistsAction.STOP
-        logging.info("📋 Policy: Stop if album exists")
+        safe_log('info', "📋 Policy: Stop if album exists")
     
     # Get directories to process
     directories = get_all_subdirectories(base_directory)
     
     if not directories:
-        logging.warning("⚠️  No directories with supported media files found")
+        safe_log('warning', "⚠️  No directories with supported media files found")
         return 0
     
-    logging.info(f"📁 Found {len(directories)} directories to process")
+    safe_log('info', f"📁 Found {len(directories)} directories to process")
     
     # Handle custom album name (single album for all files)
     custom_album_id = None
     if args.album_name and not args.dry_run:
         # Create the single album once
-        logging.info(f"🎯 Creating single album '{args.album_name}' for all files...")
+        safe_log('info', f"🎯 Creating single album '{args.album_name}' for all files...")
         custom_album_id, created_new = album_manager.get_or_create_album(args.album_name, exists_action)
         if custom_album_id is None:
             if exists_action == AlbumExistsAction.SKIP:
                 logging.info(f"   Skipped existing album: {args.album_name}")
                 return 0
             else:
-                logging.error(f"❌ Failed to create album: {args.album_name}")
+                safe_log('error', f"❌ Failed to create album: {args.album_name}")
                 return 1
         
         if created_new:
-            logging.info(f"   ✨ Created new album: {args.album_name} ({custom_album_id})")
+            safe_log('info', f"   ✨ Created new album: {args.album_name} ({custom_album_id})")
         else:
-            logging.info(f"   📁 Using existing album: {args.album_name} ({custom_album_id})")
+            safe_log('info', f"   📁 Using existing album: {args.album_name} ({custom_album_id})")
     
     # Process directories
     total_uploaded = 0
@@ -381,7 +437,7 @@ def run_backup(args):
     with tqdm(directories, desc="Processing directories", disable=args.verbose) as pbar:
         for directory in pbar:
             if interrupted:
-                logging.info("🛑 Processing interrupted by user")
+                safe_log('info', "🛑 Processing interrupted by user")
                 break
             
             pbar.set_description(f"Processing: {os.path.basename(directory)}")
@@ -414,7 +470,7 @@ def run_backup(args):
             total_failed += failed
             
             if not success:
-                logging.error(f"❌ Failed to process directory: {directory}")
+                safe_log('error', f"❌ Failed to process directory: {directory}")
                 if not args.dry_run:
                     state.set_stop_reason(f"Failed to process directory: {directory}")
                     break
@@ -428,46 +484,46 @@ def run_backup(args):
     
     # Final summary
     logging.info("\n" + "="*60)
-    logging.info("📊 BACKUP SUMMARY")
+    safe_log('info', "📊 BACKUP SUMMARY")
     logging.info("="*60)
     
     if not args.dry_run:
-        logging.info(state.get_summary())
-        logging.info("\n" + quota.get_quota_summary())
+        safe_log('info', state.get_summary())
+        safe_log('info', "\n" + quota.get_quota_summary())
         
         if album_manager:
-            logging.info("\n" + album_manager.get_albums_summary())
+            safe_log('info', "\n" + album_manager.get_albums_summary())
     
     # Show album preview for dry runs
     if args.dry_run and album_preview:
-        logging.info(f"\n📋 Albums That Would Be Created:")
+        safe_log('info', f"\n📋 Albums That Would Be Created:")
         total_albums = len(album_preview)
         total_files_in_albums = sum(album_preview.values())
         
         for album_name, file_count in sorted(album_preview.items()):
-            logging.info(f"   📁 '{album_name}' → {file_count:,} files")
+            safe_log('info', f"   📁 '{album_name}' → {file_count:,} files")
         
-        logging.info(f"\n📊 Album Summary:")
+        safe_log('info', f"\n📊 Album Summary:")
         logging.info(f"   Total albums: {total_albums}")
         logging.info(f"   Total files: {total_files_in_albums:,}")
     
-    logging.info(f"\n📁 Directory Processing:")
+    safe_log('info', f"\n📁 Directory Processing:")
     logging.info(f"   Files uploaded: {total_uploaded:,}")
     logging.info(f"   Files skipped: {total_skipped:,}")
     logging.info(f"   Files failed: {total_failed:,}")
     
     # Check for completion
     if interrupted:
-        logging.info("\n🛑 Backup interrupted by user")
+        safe_log('info', "\n🛑 Backup interrupted by user")
         return 0
     elif total_failed > 0:
-        logging.info(f"\n⚠️  Backup completed with {total_failed} failures")
+        safe_log('info', f"\n⚠️  Backup completed with {total_failed} failures")
         return 1
     else:
         if args.dry_run:
-            logging.info("\n✅ Dry run completed successfully")
+            safe_log('info', "\n✅ Dry run completed successfully")
         else:
-            logging.info("\n🎉 Backup completed successfully!")
+            safe_log('info', "\n🎉 Backup completed successfully!")
         return 0
 
 def list_states_command(args):
@@ -602,10 +658,10 @@ Examples:
     try:
         return run_backup(args)
     except KeyboardInterrupt:
-        logging.info("\n🛑 Backup interrupted")
+        safe_log('info', "\n🛑 Backup interrupted")
         return 0
     except Exception as e:
-        logging.error(f"❌ Unexpected error: {e}")
+        safe_log('error', f"❌ Unexpected error: {e}")
         import traceback
         logging.debug(traceback.format_exc())
         return 1

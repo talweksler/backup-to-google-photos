@@ -13,6 +13,7 @@ from config import (
     is_supported_file, is_image_file, is_video_file, get_max_file_size,
     MAX_RETRIES, RETRY_DELAY, BACKOFF_FACTOR, UPLOAD_CHUNK_SIZE
 )
+from safe_logging import safe_log
 from state_manager import BackupState
 from quota_tracker import QuotaTracker
 
@@ -91,7 +92,7 @@ class MediaUploader:
             # Mark as uploaded in state
             self.state.mark_file_uploaded(file_path, media_item_id, album_id)
             
-            logger.info(f"✅ Successfully uploaded: {os.path.basename(file_path)}")
+            safe_log('info', f"✅ Successfully uploaded: {os.path.basename(file_path)}")
             return UploadResult(success=True, media_item_id=media_item_id)
             
         except Exception as e:
@@ -379,7 +380,7 @@ class MediaUploader:
                 logger.info(f"No supported media files found in: {directory_path}")
                 return 0, len(files), 0
             
-            logger.info(f"Found {len(supported_files)} supported files in: {directory_path}")
+            safe_log('info', f"Found {len(supported_files)} supported files in: {directory_path}")
             
             # Upload each file
             for file_path in supported_files:

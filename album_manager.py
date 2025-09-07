@@ -8,6 +8,7 @@ import time
 from config import sanitize_album_name, MAX_RETRIES, RETRY_DELAY, BACKOFF_FACTOR
 from state_manager import BackupState
 from quota_tracker import QuotaTracker
+from safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
 
@@ -152,7 +153,7 @@ class AlbumManager:
         
         for attempt in range(retries + 1):
             try:
-                logger.info(f"Creating album: '{sanitized_name}' (attempt {attempt + 1})")
+                safe_log('info', f"Creating album: '{sanitized_name}' (attempt {attempt + 1})")
                 
                 request_body = {
                     'album': {
@@ -168,7 +169,7 @@ class AlbumManager:
                 
                 album_id = response.get('id')
                 if album_id:
-                    logger.info(f"Successfully created album: '{sanitized_name}' (ID: {album_id})")
+                    safe_log('info', f"Successfully created album: '{sanitized_name}' (ID: {album_id})")
                     
                     # Cache the created album
                     self.state.add_created_album(sanitized_name, album_id)

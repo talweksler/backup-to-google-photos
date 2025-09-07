@@ -142,13 +142,13 @@ class AlbumManager:
         sanitized_name = sanitize_album_name(album_name)
         
         if not sanitized_name:
-            logger.error(f"Invalid album name: '{album_name}'")
+            safe_log('error', f"Invalid album name: '{album_name}'")
             return None
         
         # Check quota
         can_perform, reason = self.quota.can_perform_operation("create_album")
         if not can_perform:
-            logger.error(f"Cannot create album '{sanitized_name}': {reason}")
+            safe_log('error', f"Cannot create album '{sanitized_name}': {reason}")
             return None
         
         for attempt in range(retries + 1):
@@ -187,18 +187,18 @@ class AlbumManager:
                     logger.warning(f"Rate limited creating album, waiting {wait_time}s...")
                     time.sleep(wait_time)
                 elif e.resp.status == 409:  # Conflict - album might already exist
-                    logger.warning(f"Album '{sanitized_name}' might already exist")
+                    safe_log('warning', f"Album '{sanitized_name}' might already exist")
                     # Try to find it
                     exists, album_id = self.album_exists(sanitized_name)
                     if exists and album_id:
-                        logger.info(f"Found existing album: '{sanitized_name}' (ID: {album_id})")
+                        safe_log('info', f"Found existing album: '{sanitized_name}' (ID: {album_id})")
                         self.state.add_created_album(sanitized_name, album_id)
                         return album_id
                     else:
                         logger.error(f"Album conflict but couldn't find existing album")
                         return None
                 else:
-                    logger.error(f"HTTP error creating album '{sanitized_name}': {e}")
+                    safe_log('error', f"HTTP error creating album '{sanitized_name}': {e}")
                     if attempt < retries:
                         wait_time = RETRY_DELAY * (BACKOFF_FACTOR ** attempt)
                         time.sleep(wait_time)
@@ -206,14 +206,14 @@ class AlbumManager:
                         return None
                         
             except Exception as e:
-                logger.error(f"Unexpected error creating album '{sanitized_name}': {e}")
+                safe_log('error', f"Unexpected error creating album '{sanitized_name}': {e}")
                 if attempt < retries:
                     wait_time = RETRY_DELAY * (BACKOFF_FACTOR ** attempt)
                     time.sleep(wait_time)
                 else:
                     return None
         
-        logger.error(f"Failed to create album '{sanitized_name}' after {retries + 1} attempts")
+        safe_log('error', f"Failed to create album '{sanitized_name}' after {retries + 1} attempts")
         return None
     
     def get_or_create_album(self, album_name: str, 
@@ -225,25 +225,25 @@ class AlbumManager:
         sanitized_name = sanitize_album_name(album_name)
         
         if not sanitized_name:
-            logger.error(f"Invalid album name: '{album_name}'")
+            safe_log('error', f"Invalid album name: '{album_name}'")
             return None, False
         
         # Check if album exists
         exists, album_id = self.album_exists(sanitized_name)
         
         if exists and album_id:
-            logger.info(f"Album '{sanitized_name}' already exists (ID: {album_id})")
+            safe_log('info', f"Album '{sanitized_name}' already exists (ID: {album_id})")
             
             if exists_action == AlbumExistsAction.SKIP:
-                logger.info(f"Skipping existing album: '{sanitized_name}'")
+                safe_log('info', f"Skipping existing album: '{sanitized_name}'")
                 return None, False
             elif exists_action == AlbumExistsAction.MERGE:
-                logger.info(f"Using existing album: '{sanitized_name}'")
+                safe_log('info', f"Using existing album: '{sanitized_name}'")
                 # Make sure it's in our state
                 self.state.add_created_album(sanitized_name, album_id)
                 return album_id, False
             else:  # STOP
-                logger.error(f"Album '{sanitized_name}' already exists. Use --skip-existing or --merge-existing flags.")
+                safe_log('error', f"Album '{sanitized_name}' already exists. Use --skip-existing or --merge-existing flags.")
                 return None, False
         else:
             # Album doesn't exist, create it

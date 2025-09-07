@@ -9,6 +9,7 @@ import logging
 from config import (
     get_state_filepath, STATE_VERSION, ensure_directories_exist
 )
+from safe_logging import safe_log
 
 logger = logging.getLogger(__name__)
 
@@ -195,7 +196,7 @@ class BackupState:
     def set_stop_reason(self, reason: str):
         """Set the reason why the backup stopped"""
         self.state_data['current_session']['stop_reason'] = reason
-        logger.info(f"Backup stopped: {reason}")
+        safe_log('info', f"Backup stopped: {reason}")
     
     def is_file_uploaded(self, file_path: str) -> bool:
         """Check if a file was already uploaded"""

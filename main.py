@@ -137,11 +137,11 @@ def get_all_subdirectories(base_path: str) -> List[str]:
                 subdirs.append(root)
     
     except PermissionError as e:
-        logging.error(f"Permission denied accessing {base_path}: {e}")
+        safe_log('error', f"Permission denied accessing {base_path}: {e}")
         return []
     
     except Exception as e:
-        logging.error(f"Error walking directory {base_path}: {e}")
+        safe_log('error', f"Error walking directory {base_path}: {e}")
         return []
     
     # Sort by depth (deepest first) to process leaf directories first
@@ -266,10 +266,10 @@ def process_directory(directory: str, album_manager: AlbumManager, uploader: Med
     
     if target_album_id is None:
         if exists_action == AlbumExistsAction.SKIP:
-            logging.info(f"   Skipped existing album: {album_name}")
+            safe_log('info', f"   Skipped existing album: {album_name}")
             return True, 0, supported_files, 0, album_name
         else:
-            logging.error(f"   Failed to create/get album: {album_name}")
+            safe_log('error', f"   Failed to create/get album: {album_name}")
             return False, 0, 0, supported_files, album_name
     
     if custom_album_name and album_id:
@@ -299,15 +299,15 @@ def run_backup(args):
     
     # Validate directory
     if not os.path.exists(base_directory):
-        logging.error(f"Directory does not exist: {base_directory}")
+        safe_log('error', f"Directory does not exist: {base_directory}")
         return 1
     
     if not os.path.isdir(base_directory):
-        logging.error(f"Path is not a directory: {base_directory}")
+        safe_log('error', f"Path is not a directory: {base_directory}")
         return 1
     
     safe_log('info', f"🚀 Starting Google Photos backup")
-    logging.info(f"   Source directory: {base_directory}")
+    safe_log('info', f"   Source directory: {base_directory}")
     logging.info(f"   Dry run: {'Yes' if args.dry_run else 'No'}")
     
     # Initialize state
@@ -325,8 +325,8 @@ def run_backup(args):
     last_dir = state.get_last_processed_directory()
     if last_dir:
         safe_log('info', f"📝 Resuming from previous session")
-        logging.info(f"   Last processed: {last_dir}")
-        logging.info(f"   Files uploaded so far: {len(state.get_uploaded_files())}")
+        safe_log('info', f"   Last processed: {last_dir}")
+        safe_log('info', f"   Files uploaded so far: {len(state.get_uploaded_files())}")
     
     state.start_new_session()
     
@@ -417,7 +417,7 @@ def run_backup(args):
         custom_album_id, created_new = album_manager.get_or_create_album(args.album_name, exists_action)
         if custom_album_id is None:
             if exists_action == AlbumExistsAction.SKIP:
-                logging.info(f"   Skipped existing album: {args.album_name}")
+                safe_log('info', f"   Skipped existing album: {args.album_name}")
                 return 0
             else:
                 safe_log('error', f"❌ Failed to create album: {args.album_name}")
@@ -653,7 +653,7 @@ Examples:
     
     # Set up logging
     log_file = setup_logging(args.verbose)
-    logging.info(f"Logging to: {log_file}")
+    safe_log('info', f"Logging to: {log_file}")
     
     try:
         return run_backup(args)

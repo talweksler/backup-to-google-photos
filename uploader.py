@@ -173,10 +173,8 @@ class MediaUploader:
                 with open(file_path, 'rb') as f:
                     response = requests.post(upload_url, headers=headers, data=f)
                 
-                # Record the API request
-                if not self.quota.record_requests(1):
-                    logger.error("Quota exhausted during file upload")
-                    return None
+                # Note: Bytes upload doesn't count toward Google Photos API quota
+                # Only the batchCreate call counts
                 
                 if response.status_code == 200:
                     upload_token = response.text
@@ -360,7 +358,7 @@ class MediaUploader:
         try:
             # Get all files in directory
             if not os.path.exists(directory_path) or not os.path.isdir(directory_path):
-                logger.error(f"Directory does not exist: {directory_path}")
+                safe_log('error', f"Directory does not exist: {directory_path}")
                 return 0, 0, 1
             
             files = []
@@ -370,14 +368,14 @@ class MediaUploader:
                     if os.path.isfile(file_path):
                         files.append(file_path)
             except PermissionError:
-                logger.error(f"Permission denied accessing directory: {directory_path}")
+                safe_log('error', f"Permission denied accessing directory: {directory_path}")
                 return 0, 0, 1
             
             # Filter to supported files
             supported_files = [f for f in files if is_supported_file(f)]
             
             if not supported_files:
-                logger.info(f"No supported media files found in: {directory_path}")
+                safe_log('info', f"No supported media files found in: {directory_path}")
                 return 0, len(files), 0
             
             safe_log('info', f"Found {len(supported_files)} supported files in: {directory_path}")
@@ -412,7 +410,7 @@ class MediaUploader:
             return uploaded_count, skipped_count, failed_count
             
         except Exception as e:
-            logger.error(f"Error uploading directory {directory_path}: {e}")
+            safe_log('error', f"Error uploading directory {directory_path}: {e}")
             return uploaded_count, skipped_count, failed_count + 1
 
 def get_directory_media_count(directory_path: str) -> Tuple[int, int]:
@@ -437,7 +435,7 @@ def get_directory_media_count(directory_path: str) -> Tuple[int, int]:
         return total_files, supported_files
         
     except Exception as e:
-        logger.error(f"Error counting files in {directory_path}: {e}")
+        safe_log('error', f"Error counting files in {directory_path}: {e}")
         return 0, 0
 
 if __name__ == "__main__":

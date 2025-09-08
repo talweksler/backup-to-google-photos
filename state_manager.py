@@ -10,6 +10,10 @@ from config import (
     get_state_filepath, STATE_VERSION, ensure_directories_exist
 )
 from safe_logging import safe_log
+from timezone_utils import (
+    get_pacific_date_string, get_pacific_datetime_string, 
+    has_pacific_date_changed, get_utc_now
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +68,7 @@ class BackupState:
     
     def _create_new_state(self) -> Dict[str, Any]:
         """Create a new state structure"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_utc_now().isoformat()
         
         return {
             'base_directory': self.base_directory,
@@ -81,9 +85,12 @@ class BackupState:
                 'files_failed': 0
             },
             'daily_quota': {
-                'date': datetime.now(timezone.utc).date().isoformat(),
-                'total_requests': 0
+                'date': get_pacific_date_string(),
+                'total_requests': 0,
+                'reset_at': get_pacific_datetime_string(),
+                'timezone': 'Pacific'
             },
+            'quota_resets': [],
             'uploaded_files': {},
             'failed_uploads': {},
             'created_albums': {}
@@ -92,7 +99,7 @@ class BackupState:
     def save_state(self):
         """Save current state to file"""
         try:
-            self.state_data['last_updated'] = datetime.now(timezone.utc).isoformat()
+            self.state_data['last_updated'] = get_utc_now().isoformat()
             
             # Ensure directory exists
             os.makedirs(os.path.dirname(self.state_file), exist_ok=True)
@@ -117,7 +124,7 @@ class BackupState:
     
     def start_new_session(self):
         """Start a new backup session"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_utc_now().isoformat()
         
         self.state_data['current_session'] = {
             'start_time': now,
@@ -129,13 +136,8 @@ class BackupState:
             'files_failed': 0
         }
         
-        # Update daily quota if it's a new day
-        today = datetime.now(timezone.utc).date().isoformat()
-        if self.state_data['daily_quota']['date'] != today:
-            self.state_data['daily_quota'] = {
-                'date': today,
-                'total_requests': 0
-            }
+        # Update daily quota if it's a new Pacific day
+        self._check_and_reset_daily_quota_if_needed()
         
         self.save_state()
         logger.info("Started new backup session")
@@ -144,6 +146,89 @@ class BackupState:
         """Add to API request count"""
         self.state_data['current_session']['api_requests_count'] += count
         self.state_data['daily_quota']['total_requests'] += count
+    
+    def _check_and_reset_daily_quota_if_needed(self) -> bool:
+        """
+        Check if Pacific date has changed and reset daily quota if needed.
+        Returns True if quota was reset, False otherwise.
+        """
+        # Migrate old state files that don't have Pacific date format
+        self._migrate_daily_quota_to_pacific_if_needed()
+        
+        stored_date = self.get_quota_date()
+        has_changed, current_date = has_pacific_date_changed(stored_date)
+        
+        if has_changed:
+            self._reset_daily_quota(current_date, stored_date)
+            return True
+        
+        return False
+    
+    def _migrate_daily_quota_to_pacific_if_needed(self):
+        """Migrate old UTC-based daily quota to Pacific time format"""
+        daily_quota = self.state_data.get('daily_quota', {})
+        
+        # Check if this is an old format (missing timezone field)
+        if 'timezone' not in daily_quota:
+            current_pacific_date = get_pacific_date_string()
+            
+            # Update to Pacific format
+            self.state_data['daily_quota'].update({
+                'date': current_pacific_date,
+                'reset_at': get_pacific_datetime_string(),
+                'timezone': 'Pacific'
+            })
+            
+            # Initialize quota_resets if missing
+            if 'quota_resets' not in self.state_data:
+                self.state_data['quota_resets'] = []
+            
+            logger.info(f"Migrated state file to Pacific timezone. New date: {current_pacific_date}")
+    
+    def _reset_daily_quota(self, new_pacific_date: str, previous_date: str):
+        """Reset daily quota when Pacific date changes"""
+        session_count = self.state_data['current_session']['api_requests_count']
+        previous_daily_count = self.state_data['daily_quota']['total_requests']
+        
+        # Log the reset event
+        reset_info = {
+            'reset_at_utc': get_utc_now().isoformat(),
+            'reset_at_pacific': get_pacific_datetime_string(),
+            'previous_date': previous_date,
+            'new_date': new_pacific_date,
+            'session_requests_at_reset': session_count,
+            'daily_requests_reset': previous_daily_count
+        }
+        
+        # Update quota resets history
+        if 'quota_resets' not in self.state_data:
+            self.state_data['quota_resets'] = []
+        self.state_data['quota_resets'].append(reset_info)
+        
+        # Reset the daily quota
+        self.state_data['daily_quota'] = {
+            'date': new_pacific_date,
+            'total_requests': 0,
+            'reset_at': get_pacific_datetime_string(),
+            'timezone': 'Pacific'
+        }
+        
+        # Log this important event
+        safe_log('info', 
+                 f"🔄 Daily quota reset! Pacific date changed from {previous_date} to {new_pacific_date}")
+        safe_log('info', 
+                 f"Previous daily usage: {previous_daily_count} requests. Now reset to 0.")
+        safe_log('info', 
+                 f"Session requests continue from: {session_count}")
+    
+    def check_and_reset_quota_if_needed(self) -> bool:
+        """
+        Public method to check and reset quota if Pacific date has changed.
+        This should be called by QuotaTracker before recording requests.
+        
+        Returns True if quota was reset, False otherwise.
+        """
+        return self._check_and_reset_daily_quota_if_needed()
         
     def set_last_processed_directory(self, directory: str):
         """Set the last processed directory"""
@@ -151,7 +236,7 @@ class BackupState:
     
     def mark_file_uploaded(self, file_path: str, media_item_id: str, album_id: Optional[str] = None):
         """Mark a file as successfully uploaded"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_utc_now().isoformat()
         
         self.state_data['uploaded_files'][file_path] = {
             'uploaded_at': now,
@@ -167,7 +252,7 @@ class BackupState:
     
     def mark_file_failed(self, file_path: str, error_message: str, attempts: int = 1):
         """Mark a file as failed to upload"""
-        now = datetime.now(timezone.utc).isoformat()
+        now = get_utc_now().isoformat()
         
         if file_path in self.state_data['failed_uploads']:
             # Update existing failed entry
@@ -225,6 +310,10 @@ class BackupState:
     def get_daily_quota_usage(self) -> int:
         """Get today's total API request count"""
         return self.state_data['daily_quota']['total_requests']
+    
+    def get_quota_date(self) -> str:
+        """Get the current quota date (Pacific time)"""
+        return self.state_data['daily_quota'].get('date', get_pacific_date_string())
     
     def get_session_request_count(self) -> int:
         """Get current session's API request count"""

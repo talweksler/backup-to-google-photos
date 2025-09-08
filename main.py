@@ -23,6 +23,7 @@ from quota_tracker import QuotaTracker, estimate_total_requests_for_backup
 from album_manager import AlbumManager, AlbumExistsAction
 from uploader import MediaUploader, get_directory_media_count
 from safe_logging import safe_log
+from timezone_utils import get_pacific_date_string, format_pacific_time_for_logging, get_pacific_datetime_string
 
 # System directories and files to skip
 SKIP_DIRECTORIES = {
@@ -78,18 +79,24 @@ def setup_logging(verbose: bool = False, log_file: str = None):
     """Set up logging configuration"""
     ensure_directories_exist()
     
-    # Create log filename if not provided
+    # Create log filename if not provided - use Pacific date
     if not log_file:
-        timestamp = datetime.now().strftime("%Y-%m-%d")
-        log_file = os.path.join(LOG_DIR, f"backup_{timestamp}.log")
+        pacific_date = get_pacific_date_string()
+        log_file = os.path.join(LOG_DIR, f"backup_{pacific_date}.log")
     
     # Configure logging
     log_level = logging.DEBUG if verbose else logging.INFO
     
+    # Create Pacific timezone formatter
+    class PacificTimeFormatter(logging.Formatter):
+        def formatTime(self, record, datefmt=None):
+            # Convert record time to Pacific timezone
+            record_time = datetime.fromtimestamp(record.created)
+            return format_pacific_time_for_logging(record_time, include_timezone=True)
+    
     # Create formatters
-    detailed_formatter = logging.Formatter(
-        f'%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-        datefmt=LOG_TIMESTAMP_FORMAT
+    detailed_formatter = PacificTimeFormatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
     )
     
     simple_formatter = logging.Formatter('%(message)s')
@@ -323,11 +330,12 @@ def run_backup(args):
     elif args.reset_quota_only:
         safe_log('info', "🔄 Resetting quota counters to 0")
         # Reset daily and session quota counters while keeping upload progress
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).date().isoformat()
+        pacific_today = get_pacific_date_string()
         state.state_data['daily_quota'] = {
-            'date': today,
-            'total_requests': 0
+            'date': pacific_today,
+            'total_requests': 0,
+            'reset_at': get_pacific_datetime_string(),
+            'timezone': 'Pacific'
         }
         state.state_data['current_session']['api_requests_count'] = 0
         state.save_state()
@@ -335,11 +343,12 @@ def run_backup(args):
     elif args.set_quota_usage is not None:
         safe_log('info', f"🔄 Setting daily quota usage to {args.set_quota_usage}")
         # Set daily quota to match Google API console usage
-        from datetime import datetime, timezone
-        today = datetime.now(timezone.utc).date().isoformat()
+        pacific_today = get_pacific_date_string()
         state.state_data['daily_quota'] = {
-            'date': today,
-            'total_requests': args.set_quota_usage
+            'date': pacific_today,
+            'total_requests': args.set_quota_usage,
+            'reset_at': get_pacific_datetime_string(),
+            'timezone': 'Pacific'
         }
         state.state_data['current_session']['api_requests_count'] = 0
         state.save_state()

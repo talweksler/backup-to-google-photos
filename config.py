@@ -52,7 +52,8 @@ STATE_VERSION = '1.0'
 # Logging Configuration
 LOG_DIR = 'logs'
 LOG_DATE_FORMAT = '%Y-%m-%d'
-LOG_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S'
+LOG_TIMESTAMP_FORMAT = '%Y-%m-%d %H:%M:%S %Z'  # Include timezone info
+LOG_DATE_PACIFIC_FORMAT = '%Y-%m-%d'  # For Pacific date-based log filenames
 
 # Album Configuration
 MAX_ALBUM_NAME_LENGTH = 500

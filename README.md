@@ -4,7 +4,14 @@ A Python script that recursively uploads photos and videos from a local director
 
 ## 🆕 Recent Updates
 
-**✨ Windows Unicode Support (Latest)**
+**🕐 Pacific Time Quota Reset (Latest)**
+- ✅ **Automatic quota reset at midnight Pacific Time** - Script continues running through midnight without stopping
+- ✅ **Real-time reset detection** - Quota automatically resets to 10,000 when Pacific date changes
+- ✅ **Pacific Time logging** - All timestamps and log files now use Pacific Time (PST/PDT)
+- ✅ **Seamless continuation** - No more daily interruptions, just automatic quota refresh
+- ✅ **Backwards compatible** - Existing state files automatically migrate to Pacific time format
+
+**✨ Windows Unicode Support**
 - ✅ Full support for Hebrew and international filenames on Windows
 - ✅ Automatic system directory filtering (`.aux`, `.tmp`, `$Recycle.Bin`, etc.)
 - ✅ Windows PowerShell compatibility with Unicode paths
@@ -22,10 +29,11 @@ A Python script that recursively uploads photos and videos from a local director
 - **🎯 Smart Album Creation**: Each directory becomes a Google Photos album
 - **💾 Resume Support**: Continues where it left off if interrupted
 - **📊 Quota Management**: Respects API limits with clear progress reporting
-- **🔄 Multiple Run Support**: Run daily until complete
+- **🕐 Pacific Time Quota Reset**: Automatically resets quota at midnight Pacific Time and continues processing
+- **🔄 24/7 Operation**: No more daily interruptions - script can run continuously through quota reset
 - **📱 Multi-format Support**: Handles photos (JPEG, PNG, HEIC, etc.) and videos (MP4, MOV, etc.)
 - **🛡️ Error Handling**: Robust error handling with retry logic
-- **📈 Progress Tracking**: Real-time progress with detailed logging
+- **📈 Progress Tracking**: Real-time progress with detailed logging in Pacific Time
 - **🖥️ Windows Compatible**: Full Unicode support for Hebrew/international filenames on Windows
 - **🔧 Smart Quota Sync**: Sync local quota tracking with Google API console
 
@@ -262,8 +270,9 @@ The tool processes directories from deepest to shallowest (leaf directories firs
 
 ## ⚡ API Quotas & Limits
 
-- **Daily Quota**: 10,000 API requests per day
+- **Daily Quota**: 10,000 API requests per day (resets at 00:00 Pacific Time)
 - **Session Limit**: 9,500 requests (with 500 safety buffer)
+- **Automatic Reset**: Script detects midnight Pacific Time and automatically resets daily quota to continue processing
 - **File Size Limits**: 
   - Photos: 200MB max
   - Videos: 10GB max
@@ -289,17 +298,32 @@ This syncs local tracking with Google's actual count.
 
 ### Multi-Day Backups
 For large collections:
-1. Run the script daily
-2. It automatically resumes where it left off
-3. Clear stop messages tell you exactly why it stopped
-4. Use `--set-quota-usage` if quota tracking gets out of sync
+1. **New**: Run the script continuously - it automatically continues through midnight Pacific Time
+2. **Traditional**: Run the script daily if you prefer manual control
+3. It automatically resumes where it left off if interrupted
+4. Clear stop messages tell you exactly why it stopped
+5. Use `--set-quota-usage` if quota tracking gets out of sync
+
+### 🆕 24/7 Operation Example
+```bash
+# This can now run continuously - no need to restart daily!
+python main.py /massive/photo/collection --merge-existing
+
+# Output will show:
+# [2025-09-08 23:59:45 PDT] Uploading file 4,999 of 50,000... (9,998/10,000 requests)
+# [2025-09-09 00:00:15 PST] 🔄 Daily quota automatically reset at 2025-09-09 00:00:15 PST
+# [2025-09-09 00:00:15 PST] ✨ You now have 10,000 fresh API requests available!
+# [2025-09-09 00:00:16 PST] Uploading file 5,000 of 50,000... (2/10,000 requests)
+```
 
 ### Stop Messages
 - ✅ `"Completed: All files uploaded successfully"`
-- ⚠️ `"Stopped: Daily API quota reached. Resume tomorrow."`
+- ⚠️ `"Stopped: Daily API quota reached. Resume tomorrow."` **(Legacy - now auto-resets)**
 - 🛑 `"Stopped: User interruption. Progress saved."`
 - ❌ `"Stopped: Network error after 3 retries."`
 - 🔧 `"Quota tracking out of sync. Use --set-quota-usage to fix."`
+
+**Note**: With Pacific Time quota reset, you should rarely see the daily quota stop message anymore - the script will automatically continue through midnight.
 
 ## 📁 Supported File Formats
 
@@ -332,6 +356,7 @@ backup-to-google-photos/
 ├── quota_tracker.py       # API quota monitoring
 ├── config.py              # Configuration constants
 ├── safe_logging.py        # Windows-compatible Unicode logging
+├── timezone_utils.py      # Pacific Time utilities for quota reset
 ├── requirements.txt       # Python dependencies
 ├── setup_credentials.md   # API setup instructions
 ├── README.md             # This file
@@ -392,7 +417,8 @@ token.json       # Your access token
 - If you see this error, update to the latest version
 
 **"Quota exceeded"** 
-- Wait until next day (quota resets at midnight PT)
+- **New**: Script now automatically continues at midnight Pacific Time - no manual intervention needed!
+- **Legacy manual method**: Wait until next day (quota resets at midnight PT)
 - Check actual usage in Google Cloud Console
 - Use `--set-quota-usage` to sync if needed
 
@@ -483,9 +509,10 @@ python main.py "C:\Users\Username\Pictures" --merge-existing
 ```
 
 ### Monitoring Progress
-- Check the logs in `logs/backup_YYYY-MM-DD.log`
+- Check the logs in `logs/backup_YYYY-MM-DD.log` (now named using Pacific Time dates)
+- All timestamps in logs now show Pacific Time (PST/PDT) for clarity
 - Use `--verbose` for detailed output
-- State files contain complete progress information
+- State files contain complete progress information including quota reset history
 
 ## 🤝 Contributing
 

@@ -11,6 +11,7 @@ from config import (
     REQUEST_SAFETY_BUFFER
 )
 from state_manager import BackupState
+from timezone_utils import format_pacific_time_for_logging
 
 logger = logging.getLogger(__name__)
 
@@ -34,9 +35,18 @@ class QuotaTracker:
         Record API requests made.
         Returns True if we can continue, False if quota limit reached.
         """
+        # FIRST: Check if we've crossed midnight Pacific and reset quota if needed
+        quota_was_reset = self.state.check_and_reset_quota_if_needed()
+        if quota_was_reset:
+            # Log the reset event with Pacific time
+            pacific_time_str = format_pacific_time_for_logging()
+            logger.info(f"🔄 Daily quota automatically reset at {pacific_time_str}")
+            logger.info(f"✨ You now have {self.max_daily_requests:,} fresh API requests available!")
+        
+        # Now record the requests (with potentially reset quota)
         self.state.add_api_request(count)
         
-        # Check if we've hit any limits
+        # Check if we've hit any limits AFTER recording
         limit_type = self.check_quota_limits()
         
         if limit_type != QuotaLimitType.NONE:
@@ -64,6 +74,9 @@ class QuotaTracker:
     
     def can_make_requests(self, request_count: int = 1) -> bool:
         """Check if we can make the specified number of requests without hitting limits"""
+        # Check if quota should be reset first
+        self.state.check_and_reset_quota_if_needed()
+        
         daily_usage = self.state.get_daily_quota_usage()
         session_usage = self.state.get_session_request_count()
         
@@ -148,6 +161,9 @@ class QuotaTracker:
         Check if we can perform an operation without hitting quota limits.
         Returns (can_perform, reason_if_not)
         """
+        # Check for quota reset first
+        self.state.check_and_reset_quota_if_needed()
+        
         estimated_requests = self.estimate_requests_for_operation(operation_type, **kwargs)
         
         if not self.can_make_requests(estimated_requests):

@@ -320,6 +320,30 @@ def run_backup(args):
         state.delete_state_file()
         state = BackupState(base_directory)
         current_state = state
+    elif args.reset_quota_only:
+        safe_log('info', "🔄 Resetting quota counters to 0")
+        # Reset daily and session quota counters while keeping upload progress
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()
+        state.state_data['daily_quota'] = {
+            'date': today,
+            'total_requests': 0
+        }
+        state.state_data['current_session']['api_requests_count'] = 0
+        state.save_state()
+        safe_log('info', "✅ Quota counters reset to 0, upload progress preserved")
+    elif args.set_quota_usage is not None:
+        safe_log('info', f"🔄 Setting daily quota usage to {args.set_quota_usage}")
+        # Set daily quota to match Google API console usage
+        from datetime import datetime, timezone
+        today = datetime.now(timezone.utc).date().isoformat()
+        state.state_data['daily_quota'] = {
+            'date': today,
+            'total_requests': args.set_quota_usage
+        }
+        state.state_data['current_session']['api_requests_count'] = 0
+        state.save_state()
+        safe_log('info', f"✅ Daily quota set to {args.set_quota_usage}, session reset to 0, upload progress preserved")
     
     # Show existing state info
     last_dir = state.get_last_processed_directory()
@@ -372,6 +396,11 @@ def run_backup(args):
     
     # Initialize components
     quota = QuotaTracker(state, max_session_requests=args.max_requests)
+    
+    # Debug: Show current quota status
+    daily_usage = state.get_daily_quota_usage()
+    session_usage = state.get_session_request_count()
+    safe_log('info', f"[DEBUG] Quota status: Daily={daily_usage}/10000, Session={session_usage}/{args.max_requests}")
     
     if not args.dry_run:
         album_manager = AlbumManager(service, state, quota)
@@ -629,6 +658,10 @@ Examples:
     # State management
     parser.add_argument('--reset-state', action='store_true',
                        help='Ignore existing state file and start fresh')
+    parser.add_argument('--reset-quota-only', action='store_true',
+                       help='Reset only quota counters to 0, keep upload progress')
+    parser.add_argument('--set-quota-usage', type=int, metavar='COUNT',
+                       help='Set daily quota usage to specific number (from Google API console)')
     parser.add_argument('--list-states', action='store_true',
                        help='List all existing backup states and exit')
     

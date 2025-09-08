@@ -2,6 +2,20 @@
 
 A Python script that recursively uploads photos and videos from a local directory structure to Google Photos, preserving the folder hierarchy as albums. Designed to handle large collections over multiple days while respecting API quotas.
 
+## 🆕 Recent Updates
+
+**✨ Windows Unicode Support (Latest)**
+- ✅ Full support for Hebrew and international filenames on Windows
+- ✅ Automatic system directory filtering (`.aux`, `.tmp`, `$Recycle.Bin`, etc.)
+- ✅ Windows PowerShell compatibility with Unicode paths
+- ✅ Emoji-safe logging (converts to ASCII on Windows)
+
+**🔧 Fixed Quota Tracking**
+- ✅ Fixed double-counting bug that inflated API request counts
+- ✅ New `--set-quota-usage` flag to sync with Google API Console
+- ✅ New `--reset-quota-only` flag to fix quota without losing progress
+- ✅ Accurate request counting (file uploads no longer double-counted)
+
 ## 🌟 Features
 
 - **📁 Recursive Upload**: Processes all subdirectories automatically
@@ -12,6 +26,8 @@ A Python script that recursively uploads photos and videos from a local director
 - **📱 Multi-format Support**: Handles photos (JPEG, PNG, HEIC, etc.) and videos (MP4, MOV, etc.)
 - **🛡️ Error Handling**: Robust error handling with retry logic
 - **📈 Progress Tracking**: Real-time progress with detailed logging
+- **🖥️ Windows Compatible**: Full Unicode support for Hebrew/international filenames on Windows
+- **🔧 Smart Quota Sync**: Sync local quota tracking with Google API console
 
 ## ⚠️ Important Limitations (Google API Changes)
 
@@ -41,8 +57,38 @@ Due to Google Photos API restrictions:
 
 3. **Run Your First Backup**
    ```bash
+   # Linux/Mac
    python main.py /path/to/your/photos
+   
+   # Windows (use quotes for paths with spaces)
+   python main.py "C:\Users\Username\Pictures"
    ```
+
+## 🖥️ Windows Users
+
+**This tool fully supports Windows with Hebrew and international filenames!**
+
+**Requirements:**
+- Windows PowerShell (recommended) or Command Prompt
+- Python 3.7+
+
+**Important Windows Notes:**
+- ✅ **Hebrew filenames**: Fully supported (directories like `צילומים` work perfectly)
+- ✅ **Emoji in output**: Converted to ASCII for Windows console compatibility
+- ✅ **System directories**: Automatically skips `.aux`, `.tmp`, `$Recycle.Bin`, etc.
+- ✅ **Path handling**: Use quotes for paths with spaces
+
+**Example Windows Commands:**
+```cmd
+# Basic backup
+python main.py "C:\Users\Administrator\Dropbox\Photos"
+
+# With existing album handling
+python main.py "C:\Users\Administrator\Dropbox\Photos" --merge-existing
+
+# Fix quota tracking (common after setup)
+python main.py "C:\Users\Administrator\Dropbox\Photos" --set-quota-usage 1234
+```
 
 ## 📖 Usage
 
@@ -93,6 +139,22 @@ python main.py pics --album-name-leaf
 - `--album-name` uploads ALL files to a single album regardless of subdirectory structure
 - The other naming strategies are mutually exclusive and only apply when `--album-name` is NOT used
 
+### Quota Management
+
+**Fix Quota Tracking Issues:**
+```bash
+# Reset quota counters to 0 (keeps upload progress)
+python main.py /path/to/photos --reset-quota-only
+
+# Sync with Google API Console usage (recommended)
+python main.py /path/to/photos --set-quota-usage 5118
+```
+
+**Why you might need this:**
+- If you see "Not enough daily quota remaining" but Google API Console shows quota available
+- After the quota tracking bug was fixed in recent versions
+- To sync local state with actual Google API usage
+
 ### Control Options
 
 **Preview Before Upload (Dry Run):**
@@ -137,14 +199,26 @@ python main.py /path/to/photos --verbose
 # Custom API request limit
 python main.py /path/to/photos --max-requests 5000
 
-# Start fresh (ignore previous progress)
+# Start fresh (ignore previous progress) 
 python main.py /path/to/photos --reset-state
+
+# Reset only quota counters (keeps upload progress)
+python main.py /path/to/photos --reset-quota-only
+
+# Sync quota with Google API Console
+python main.py /path/to/photos --set-quota-usage 1234
 ```
 
 ### State Management
 ```bash
 # List all backup states
 python main.py --list-states
+
+# Reset only quota tracking (keeps upload progress)
+python main.py --reset-quota-only
+
+# Set quota to match Google API Console
+python main.py --set-quota-usage 1234
 ```
 
 ## 🏗️ How It Works
@@ -195,17 +269,37 @@ The tool processes directories from deepest to shallowest (leaf directories firs
   - Videos: 10GB max
 - **Album Limits**: 20,000 items per album
 
+### Request Counting (Fixed in Recent Versions)
+**What counts toward quota:**
+- ✅ Creating media items (1 request per file)
+- ✅ Creating albums (1 request per album)
+- ✅ Listing albums (1 request per 50 albums)
+- ✅ Adding media to albums (1 request per batch)
+
+**What DOES NOT count:**
+- ❌ Uploading file bytes (this was incorrectly counted in earlier versions)
+
+### Quota Sync with Google
+If you see quota errors but Google API Console shows quota available:
+```bash
+# Check your actual usage in Google Cloud Console, then:
+python main.py /path/to/photos --set-quota-usage 1234
+```
+This syncs local tracking with Google's actual count.
+
 ### Multi-Day Backups
 For large collections:
 1. Run the script daily
 2. It automatically resumes where it left off
 3. Clear stop messages tell you exactly why it stopped
+4. Use `--set-quota-usage` if quota tracking gets out of sync
 
 ### Stop Messages
 - ✅ `"Completed: All files uploaded successfully"`
 - ⚠️ `"Stopped: Daily API quota reached. Resume tomorrow."`
 - 🛑 `"Stopped: User interruption. Progress saved."`
 - ❌ `"Stopped: Network error after 3 retries."`
+- 🔧 `"Quota tracking out of sync. Use --set-quota-usage to fix."`
 
 ## 📁 Supported File Formats
 
@@ -237,6 +331,7 @@ backup-to-google-photos/
 ├── state_manager.py       # State persistence
 ├── quota_tracker.py       # API quota monitoring
 ├── config.py              # Configuration constants
+├── safe_logging.py        # Windows-compatible Unicode logging
 ├── requirements.txt       # Python dependencies
 ├── setup_credentials.md   # API setup instructions
 ├── README.md             # This file
@@ -275,9 +370,31 @@ token.json       # Your access token
   - `photoslibrary.appendonly`
   - `photoslibrary.edit.appcreateddata`
 
+**"Not enough daily quota remaining" (but Google Console shows quota available)**
+- 🐞 **This was a bug in quota tracking (now fixed)**
+- **Solution**: Sync your quota with Google API Console:
+  ```bash
+  python main.py "C:\path\to\photos" --set-quota-usage 1234
+  ```
+- Replace `1234` with your actual usage from Google API Console
+- This keeps all upload progress while fixing quota tracking
+
+**"UnicodeEncodeError" on Windows**
+- ✅ **Fixed in current version** - Unicode is now fully supported
+- Hebrew directory names and international characters work correctly
+- Emojis in output are converted to ASCII equivalents on Windows
+
+**Windows: "Cannot process directory" errors**
+- Tool now automatically skips system directories like:
+  - `.aux`, `.tmp`, `.temp`
+  - `$Recycle.Bin`, `System Volume Information`
+  - `.DS_Store`, `thumbs.db`
+- If you see this error, update to the latest version
+
 **"Quota exceeded"** 
 - Wait until next day (quota resets at midnight PT)
-- Check usage in Google Cloud Console
+- Check actual usage in Google Cloud Console
+- Use `--set-quota-usage` to sync if needed
 
 **"File too large"**
 - Photos: 200MB limit
@@ -287,6 +404,7 @@ token.json       # Your access token
 **"Permission denied"**
 - Check file/directory permissions
 - Ensure you have read access to source directories
+- On Windows: Run as Administrator if accessing system directories
 
 **"Duplicate albums created"**
 - This is expected behavior due to API limitations
@@ -303,9 +421,16 @@ python main.py /path/to/photos --verbose
 python main.py --list-states
 ```
 
-### Fresh Start
+### Fresh Start vs Quota Fix
 ```bash
+# Complete fresh start (re-uploads everything)
 python main.py /path/to/photos --reset-state
+
+# Fix quota tracking only (keeps upload progress) 
+python main.py /path/to/photos --reset-quota-only
+
+# Sync quota with Google API Console (recommended)
+python main.py /path/to/photos --set-quota-usage 1234
 ```
 
 ## 📊 Progress Tracking
@@ -330,11 +455,32 @@ python main.py /path/to/photos --dry-run
 ### Multiple Backup Jobs
 You can run backups for different directories independently:
 ```bash
+# Linux/Mac (background jobs)
 python main.py /Users/photos/2023 --skip-existing &
 python main.py /Users/photos/2024 --skip-existing &
+
+# Windows (separate PowerShell windows)
+Start-Process python -ArgumentList 'main.py', '"C:\Photos\2023"', '--skip-existing'
+Start-Process python -ArgumentList 'main.py', '"C:\Photos\2024"', '--skip-existing'
 ```
 
 Each gets its own state file, so they won't interfere.
+
+### Windows Specific Tips
+```bash
+# Check quota status before large uploads
+python main.py "C:\Photos" --dry-run
+
+# Common workflow for Windows users
+# 1. First run (may hit quota limit)
+python main.py "C:\Users\Username\Pictures" --merge-existing
+
+# 2. If quota tracking is wrong, sync it
+python main.py "C:\Users\Username\Pictures" --set-quota-usage 1234
+
+# 3. Resume normally
+python main.py "C:\Users\Username\Pictures" --merge-existing
+```
 
 ### Monitoring Progress
 - Check the logs in `logs/backup_YYYY-MM-DD.log`

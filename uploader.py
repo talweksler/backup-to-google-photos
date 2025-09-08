@@ -37,10 +37,17 @@ class MediaUploader:
         self.state = state
         self.quota = quota_tracker
         self.total_files_to_upload = 0  # Set by set_total_files_count method
+        self.current_directory_files = 0  # Current directory file count
+        self.current_directory_uploaded = 0  # Files uploaded in current directory
     
     def set_total_files_count(self, total_files: int):
         """Set the total number of files to upload for progress tracking"""
         self.total_files_to_upload = total_files
+    
+    def set_current_directory_files(self, file_count: int):
+        """Set the number of files in the current directory being processed"""
+        self.current_directory_files = file_count
+        self.current_directory_uploaded = 0  # Reset counter for new directory
     
     def upload_file(self, file_path: str, album_id: Optional[str] = None) -> UploadResult:
         """
@@ -59,9 +66,26 @@ class MediaUploader:
             if not validation_result.success:
                 return validation_result
             
+            # Show progress message (for both new uploads and skipped files)
+            if self.current_directory_files > 0:
+                remaining_in_directory = self.current_directory_files - self.current_directory_uploaded
+                action = "Uploading" if not self.state.is_file_uploaded(file_path) else "Skipping"
+                logger.info(f"{action}: {os.path.basename(file_path)} ({self._format_file_size(file_path)}) - {remaining_in_directory:,} files remaining")
+            else:
+                # Fallback to global count if directory count not set
+                uploaded_count = len(self.state.get_uploaded_files())
+                remaining_files = max(0, self.total_files_to_upload - uploaded_count) if self.total_files_to_upload > 0 else 0
+                action = "Uploading" if not self.state.is_file_uploaded(file_path) else "Skipping"
+                if self.total_files_to_upload > 0:
+                    logger.info(f"{action}: {os.path.basename(file_path)} ({self._format_file_size(file_path)}) - {remaining_files:,} files remaining")
+                else:
+                    logger.info(f"{action}: {os.path.basename(file_path)} ({self._format_file_size(file_path)})")
+            
             # Check if already uploaded
             if self.state.is_file_uploaded(file_path):
-                logger.debug(f"File already uploaded, skipping: {file_path}")
+                # Increment directory counter for skipped files too
+                self.current_directory_uploaded += 1
+                logger.debug(f"File already uploaded, skipped: {file_path}")
                 return UploadResult(success=True, skip_reason="Already uploaded")
             
             # Check quota before upload
@@ -69,15 +93,6 @@ class MediaUploader:
             if not can_perform:
                 logger.error(f"Cannot upload file {file_path}: {reason}")
                 return UploadResult(success=False, error_message=f"Quota limit: {reason}")
-            
-            # Calculate remaining files
-            uploaded_count = len(self.state.get_uploaded_files())
-            remaining_files = max(0, self.total_files_to_upload - uploaded_count) if self.total_files_to_upload > 0 else 0
-            
-            if self.total_files_to_upload > 0:
-                logger.info(f"Uploading: {os.path.basename(file_path)} ({self._format_file_size(file_path)}) - {remaining_files:,} files remaining")
-            else:
-                logger.info(f"Uploading: {os.path.basename(file_path)} ({self._format_file_size(file_path)})")
             
             # Step 1: Upload file bytes
             upload_token = self._upload_bytes(file_path)
@@ -91,6 +106,9 @@ class MediaUploader:
             
             # Mark as uploaded in state
             self.state.mark_file_uploaded(file_path, media_item_id, album_id)
+            
+            # Increment directory counter for progress tracking
+            self.current_directory_uploaded += 1
             
             safe_log('info', f"✅ Successfully uploaded: {os.path.basename(file_path)}")
             return UploadResult(success=True, media_item_id=media_item_id)
@@ -379,6 +397,9 @@ class MediaUploader:
                 return 0, len(files), 0
             
             safe_log('info', f"Found {len(supported_files)} supported files in: {directory_path}")
+            
+            # Set directory file count for progress tracking
+            self.set_current_directory_files(len(supported_files))
             
             # Upload each file
             for file_path in supported_files:
